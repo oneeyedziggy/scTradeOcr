@@ -1,0 +1,197 @@
+<html>
+<!--
+    built by oneeyedziggy w/ help from the sc-trade.tools discord 05/2023
+    free for use and reuse w/ attribution
+  -->
+
+<body>
+  <dialog id="loadingDialog">
+    <h2>Loading...</h2>
+    <p>Your files are processing, this will go away when they're done, or you can dismiss it manually and keep waiting.
+    </p>
+    <form method="dialog">
+      <button id="closeLoadingDialog">Close</button>
+    </form>
+  </dialog>
+  <!-- https://codebeautify.org/html-to-markdown -->
+  <h1>Star Citizen Commodity-terminal screenshot-to-JSON/CSV/TSV parser</h1>
+  <h2>Wot's all this then?</h2>
+  <p>This is a tool intended to speed up manual transcription of commodity prices in Star Citizen 3.19+ since the game files no-longer appear to have price data</p>
+  <h2>Usage:</h2>
+  <p>
+    The intended usage of this tool is (currenly) to:
+    <ul>
+      <li>
+        Upload a set of screenshots of in-game commodity trade terminal(s), click to have it attempt to parse the names (it will only inspect the right half of each screenshot), 
+        prices and other available data from the right side of the screen to JSON
+      </li>
+      <li>
+        Manually review and correct the initial per-screenshot json... tweaking prices, adding back missing commodities, etc
+      </li>
+      <li>Click the "Transform to Output Formats" button ( this will compile the data from all screenshots into one, slightly more compact JSON output below, as well as CSV and TSV... the intention of this is for the uploaded set of screenshots to represent the set of screenshots from scrolling through one terminal... for now, if you prefer per-screenshot output just use the contents of the first box)</li>
+      <li>Take this data for use in your own logs, tooling, or for contributing to a community price-sourcing effort</li>
+    </ul>
+  </p>
+  <input type="file" name="fileSelect" id="fileSelect" accept="image/*" multiple />
+  <br />
+  <input type="button" value="Parse" id="parseButton" />
+  <br />
+  <label for="outputBox">Output</label>
+  <br />
+  <div style="display:flex;">
+    <textarea name="outputBox" id="outputBox" rows="50" cols="70"></textarea>
+    <div id="imageList" style="overflow-y:scroll;max-height:800px"></div>
+  </div>
+  <input type="button" id="transformForOutput" value="----------- Transform to Output Formats -----------"/>
+  <br />
+  <label for="compiledJsonOutput">Combined Json</label>
+  <br />
+  <textarea name="compiledJsonOutput" id="compiledJsonOutput" rows="10" cols="120"></textarea>
+  <br />
+  <label for="csvOutput">CSV</label>
+  <br />
+  <textarea name="csvOutput" id="csvOutput" rows="10" cols="120"></textarea>
+  <br />
+  <label for="tsvOutput">TSV</label>
+  <br />
+  <textarea name="tsvOutput" id="tsvOutput" rows="10" cols="120"></textarea>
+  <br />
+  <h2>Acknowledgements and Attribution:</h2>
+  <p>
+    Thanks to the <a href="https://sc-trade.tools">sc-trade.tools</a> Discord for info, inspiration, & testing.
+  </p>
+  <p>
+    None of the commodity names or any locations that appear in data are my creation, they're all either real or made up by Cloud Imperium Games or whoever inspires them.
+  </p>
+</body>
+<script type="module">
+  import { getCommodityJson } from './commodityExtractor.js';
+  (() => {
+    const getImageSize = ( image ) => {
+      return new Promise( (resolve) => {
+        const img = new Image();
+        img.onload = function() {
+          resolve( { width: this.width, height: this.height } );
+        }
+        img.src = image;
+      });
+    }
+
+    const JSONArraytoXSV = (parsedJSON, delimiter) => {
+      //const parsedJSON = JSON.parse(jsonStringIn);
+      const columns = ['name', 'aUECPricePerUnit', 'scuVolume', 'demand'];
+      const output = parsedJSON.reduce((acc, currentCommodity) => {
+        if (currentCommodity.name && currentCommodity.aUECPricePerUnit != null) {
+          acc += [`"${currentCommodity.name || ''}"`, currentCommodity.aUECPricePerUnit ?? '', `"${currentCommodity.demand || ''}"`, currentCommodity.scuVolume ?? ''].join(delimiter) + '\n';
+        }
+        return acc;
+      }, columns.map(column => `"${column}"`).join(delimiter) + '\n');
+      return output;
+    }
+    const compileJSON = (jsonStringIn) => {
+      const parsedJSON = JSON.parse(jsonStringIn);
+      const output = parsedJSON.reduce((acc, item) => {
+        let currentCommodity;
+        for ( let commodity in item?.commodities) {
+          currentCommodity = item?.commodities?.[commodity];
+          //TODO: temporarily use a first value for each commodity name wins for combining lists
+          if (currentCommodity.name && currentCommodity.aUECPricePerUnit != null && !acc.find((commodity) => commodity.name === currentCommodity.name)) {
+
+            acc.push(currentCommodity);
+          }
+        }
+        return acc;
+      }, []);
+      return output;
+    }
+    const transformJson = () => {
+      //TODO: make combine output optional / select a combination strategy
+      const ogOutputElement = document.getElementById('outputBox');
+      const compiledJsonOutputElement = document.getElementById('compiledJsonOutput');
+      const csvOutputElement = document.getElementById('csvOutput');
+      const tsvOutputElement = document.getElementById('tsvOutput');
+
+
+      const compiledJsonOutput = compileJSON(ogOutputElement.value);
+      compiledJsonOutputElement.value = JSON.stringify(compiledJsonOutput, null, '  ');
+      csvOutputElement.value = JSONArraytoXSV(compiledJsonOutput, ',');
+      tsvOutputElement.value = JSONArraytoXSV(compiledJsonOutput, '\t');
+    }
+    const transformForOutputButton = document.getElementById('transformForOutput');
+    transformForOutputButton.addEventListener('click', transformJson);
+
+    const loadingDialog = document.getElementById('loadingDialog');
+    const loadingDialogCloseButton = loadingDialog.querySelector('#closeLoadingDialog');
+
+    loadingDialogCloseButton.addEventListener('click', (event) => {
+      //event.preventDefault();
+      loadingDialog.close();
+    });
+
+    const clearImageList = () => {
+      const myNode = document.getElementById("imageList");
+      while (myNode.firstChild) {
+        myNode.removeChild(myNode.lastChild);
+      }
+    }
+
+    const createImageTag = ( src, dimensions ) => {
+      const img = document.createElement('img');
+      img.src = src;
+      img.height = dimensions?.height ?? 1024;
+      img.width = dimensions?.width ? Math.floor( dimensions.width / 2 ) : 640;
+      img.style.display = 'block';
+      img.style['object-fit'] = 'cover';
+      img.style['object-position'] = '100% 0';
+      return img;
+    }
+
+    const setFileAsPreview = async (file) => {
+      return await new Promise(async (resolve)=>{
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+          const dataUrl = event.target.result;
+          const dimensions = await getImageSize(dataUrl);
+          document.getElementById("imageList").appendChild(createImageTag(dataUrl, dimensions));
+          
+          return resolve({ 
+            data: file,
+            dataUrl,
+            ...dimensions,
+          });
+        }
+        reader.readAsDataURL(file);
+      })
+    }
+
+    const getImageDimensions = ( file ) => {
+      const img = new Image;
+      img.onload = function() {
+          alert(img.width);
+          URL.revokeObjectURL(img.src);
+      };
+      img.src = url;
+    }
+
+    const parseClickHandler = async (_evt) => {
+      loadingDialog.showModal();
+      const input = document.getElementById('fileSelect');
+      const output = document.getElementById('outputBox');
+      const img = document.getElementById('exampleImage');
+      const coreCount = navigator?.hardwareConcurrency ? navigator.hardwareConcurrency - 1 : null;
+      
+      clearImageList();
+      const fileArray = await Promise.all( 
+        Array.from(input?.files)?.map( async file => await setFileAsPreview( file ) )
+      );
+
+      output.value = JSON.stringify(JSON.parse(await getCommodityJson(fileArray, coreCount)), null, '  ');
+      loadingDialog.close();
+    }
+
+    const pb = document.getElementById('parseButton');
+    pb.addEventListener('click', parseClickHandler);
+  })()
+</script>
+
+</html>

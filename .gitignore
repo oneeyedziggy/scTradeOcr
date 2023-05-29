@@ -1,0 +1,6 @@
+dist
+historicalBuilds
+node_modules
+non-currentTestImages
+*.ico
+*.jpg
